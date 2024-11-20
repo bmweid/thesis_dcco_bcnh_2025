@@ -258,6 +258,8 @@ fit_mcmc <- as.mcmc(fit)
 
 # Convert JAGS output to a format suitable for bayesplot
 posterior_samples <- as.array(fit$BUGSoutput$sims.array)
+
+fit
 ```
 
 #function to calculate Rhat and sum of squared residuals
