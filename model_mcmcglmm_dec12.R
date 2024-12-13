@@ -158,6 +158,7 @@ model <- MCMCglmm(bcnh_growthindex ~ bcnh_nest_density + dcco_nest_density +
                   nitt = 50000,
                   thin = 10,
                   burnin = 2000,
+                  pr = TRUE,
                   verbose = TRUE)
 
 # Check convergence & run diagnostics ----
@@ -188,50 +189,19 @@ summary(model)
 # pvalue around A p-value around 0.5 suggests good model fit
 # Extreme values (close to 0 or 1) suggest poor fit
 
-# Get fitted values correctly from MCMCglmm model
-fitted_values <- predict(model, marginal = TRUE)
+# Get fitted values (using NULL for marginal to include all effects)
+fitted_values <- predict(model, marginal = NULL)
 
-# Verify we have fitted values
-print("Length of fitted values now:")
-print(length(fitted_values))
-
-# Calculate residual SD from VCV
-residual_sd <- sqrt(mean(as.numeric(model$VCV[,"units"])))
-
-# Function to calculate sum of squared residuals
-calc_ssr <- function(observed, predicted) {
-  sum((observed - predicted)^2)
-}
-
-# Calculate observed SSR
-observed_ssr <- calc_ssr(prepared_data$bcnh_growthindex, fitted_values)
-
-# Generate posterior predictive data and calculate SSR
-n_sims <- 1000
-posterior_ssr <- numeric(n_sims)
-
-for(i in 1:n_sims) {
-  # Generate new response values from posterior
-  y_sim <- rnorm(n = length(fitted_values), 
-                 mean = fitted_values,
-                 sd = residual_sd)
-  
-  # Calculate SSR for simulated data
-  posterior_ssr[i] <- calc_ssr(y_sim, fitted_values)
-}
+# Get observed values
+observed_values <- prepared_data$bcnh_growthindex
 
 # Calculate Bayesian p-value
-p_value <- mean(posterior_ssr > observed_ssr)
-
-# Plot results
-hist(posterior_ssr, main="Posterior Predictive Check", 
-     xlab="Sum of Squared Residuals",
-     breaks=30)
-abline(v=observed_ssr, col="red", lwd=2)
-text(x=observed_ssr, y=par("usr")[4], 
-     labels=paste("p-value =", round(p_value, 3)),
-     pos=4)
+pvalue <- mean(fitted_values > observed_values)
 
 # Print results
-cat("\nObserved SSR:", observed_ssr, "\n")
-cat("Bayesian p-value:", p_value, "\n")
+print("Bayesian p-value:")
+print(pvalue)
+
+# Look at residuals
+residuals <- observed_values - fitted_values
+hist(residuals, main="Histogram of Residuals", xlab="Residuals")
