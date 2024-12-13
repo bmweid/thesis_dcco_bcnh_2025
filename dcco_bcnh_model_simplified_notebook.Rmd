@@ -1,0 +1,505 @@
+---
+title: "dcco_bcnh_model_simplified"
+output: html_document
+date: "2024-10-09"
+output: html_document
+contains: variation of model simplified to improve fit
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r libraries, include=FALSE}
+library(tidyverse)
+library(R2jags)
+library(bayesplot)
+
+setwd("C:/Users/baill/OneDrive/r-projects/cormorant-colony-analysis/current working files/dcco_bcnh_thesis")
+```
+
+
+```{r load the data}
+# Load the data
+library(readr)
+ model_data <- read_csv("C:/Users/baill/OneDrive/r-projects/cormorant-colony-analysis/current working files/dcco_bcnh_thesis/combined_dataset.csv", show_col_types = FALSE)
+```
+
+# Prepare the data
+Select columns from combined dataset to use as fixed effects.
+
+```{r data prep}
+prepared_data <- model_data %>%
+  select(year, bcnh_growthindex, total_nest_density, bcnh_nest_density, 
+         dcco_growthindex, bcnh_nest_success, dcco_usurpation, 
+         winter_nestremoval, deterrence_activenestremoval, deterrence_night,
+         bcnh_road_proximity, raccoon_predation)
+
+```
+
+#impute missing data
+```{r}
+# Function to impute missing data based on variable type
+impute_missing <- function(x, var_type) {
+  if (all(!is.na(x))) return(x)
+  
+  observed <- x[!is.na(x)]
+  n_missing <- sum(is.na(x))
+  
+  if (var_type == "normal") {
+    mean_val <- mean(observed)
+    sd_val <- sd(observed)
+    x[is.na(x)] <- rnorm(n_missing, mean_val, sd_val)
+  } else if (var_type == "exponential") {
+    rate <- 1 / mean(observed)
+    x[is.na(x)] <- rexp(n_missing, rate)
+  } else if (var_type == "bernoulli") {
+    prob <- mean(observed)
+    x[is.na(x)] <- rbinom(n_missing, 1, prob)
+  } else if (var_type == "uniform") {
+    min_val <- min(observed)
+    max_val <- max(observed)
+    x[is.na(x)] <- runif(n_missing, min_val, max_val)
+  }
+  
+  return(x)
+}
+
+# Impute missing data
+prepared_data <- prepared_data %>%
+  mutate(
+    # Normal distribution for nest density and growth indices
+    bcnh_growthindex = impute_missing(bcnh_growthindex, "normal"),
+    dcco_growthindex = impute_missing(dcco_growthindex, "normal"),
+    bcnh_nest_density = impute_missing(bcnh_nest_density, "normal"),
+    
+    # Exponential distribution for total nest density
+    total_nest_density = impute_missing(total_nest_density, "exponential"),
+    
+    # Bernoulli distribution for management variables
+    winter_nestremoval = impute_missing(winter_nestremoval, "bernoulli"),
+    deterrence_activenestremoval = impute_missing(deterrence_activenestremoval, "bernoulli"),
+    deterrence_night = impute_missing(deterrence_night, "bernoulli"),
+    
+    # For other variables, we'll use normal distribution as a default
+    bcnh_nest_success = impute_missing(bcnh_nest_success, "normal"),
+    dcco_usurpation = impute_missing(dcco_usurpation, "normal"),
+    bcnh_road_proximity = impute_missing(bcnh_road_proximity, "normal"),
+    raccoon_predation = impute_missing(raccoon_predation, "normal")
+  )
+
+```
+
+#scale variables and arrange by year
+Scale numerical covariates, excluding year, to have standard deviation of 1 and mean of 0.
+Ensure data is in chronological order.
+```{r}
+# Scale variables and arrange by year
+prepared_data <- prepared_data %>%
+  mutate(across(-year, scale)) %>%
+  arrange(year)
+
+# Create lagged bcnh_growthindex
+prepared_data <- prepared_data %>%
+  mutate(bcnh_growthindex_lag = lag(bcnh_growthindex))
+```
+
+#Define number of observations (N) and unique years (N_years)
+```{r}
+
+# Define the number of observations (N) and unique years (N_years)
+N <- nrow(prepared_data)
+year <- as.numeric(factor(prepared_data$year))
+N_years <- length(unique(year))
+```
+
+#impute NA in bcnh_growthindex_lag with mean of bcnh_growthindex
+```{r}
+# Improved data preparation
+prepared_data <- prepared_data %>%
+  mutate(bcnh_growthindex_lag = lag(bcnh_growthindex)) %>%
+  mutate(bcnh_growthindex_lag = ifelse(is.na(bcnh_growthindex_lag), 
+                                       mean(bcnh_growthindex, na.rm = TRUE), 
+                                       bcnh_growthindex_lag))
+```
+
+# Prepare data for JAGS
+```{r}
+# Update jags_data list
+jags_data <- list(
+  N = nrow(prepared_data),
+  N_years = length(unique(prepared_data$year)),
+  bcnh_growth_index = as.vector(prepared_data$bcnh_growthindex),
+  bcnh_growth_index_lag = as.vector(prepared_data$bcnh_growthindex_lag),
+  total_nest_density = as.vector(prepared_data$total_nest_density),
+  bcnh_nest_density = as.vector(prepared_data$bcnh_nest_density),
+  dcco_growth_index = as.vector(prepared_data$dcco_growthindex),
+  bcnh_nest_success = as.vector(prepared_data$bcnh_nest_success),
+  winter_nestremoval = as.vector(prepared_data$winter_nestremoval),
+  deterrence_activenestremoval = as.vector(prepared_data$deterrence_activenestremoval),
+  deterrence_night = as.vector(prepared_data$deterrence_night),
+  dcco_usurpation = as.vector(prepared_data$dcco_usurpation),
+  bcnh_road_proximity = as.vector(prepared_data$bcnh_road_proximity),
+  raccoon_predation = as.vector(prepared_data$raccoon_predation),
+  year = as.numeric(factor(prepared_data$year))
+)
+
+# Print summary to check the imputation and scaling
+summary(prepared_data)
+```
+# Specify JAGS model
+BCNH growth index as response variable
+
+Fixed effects: "total_nest_density", "bcnh_nest_density",                                                                                        "dcco_growthindex", "bcnh_nest_success", 
+                                  "winter_nestremoval", "deterrence_activenestremoval", 
+                                  "deterrence_night", "dcco_usurpation", 
+                                  "bcnh_road_proximity", "raccoon_predation"
+random effects: year to account for temporal autocorrelation
+
+```{r model}
+
+model_string <- "
+model {
+  for (i in 1:N) {
+    # BCNH growth index as response variable (observed data)
+    bcnh_growth_index[i] ~ dt(mu[i], tau, nu)
+    
+    # Mean of the response variable
+    mu[i] <- beta[1] * total_nest_density[i] +
+             beta[2] * bcnh_nest_density[i] +
+             beta[3] * dcco_growth_index[i] +
+             beta[4] * bcnh_nest_success[i] +
+             beta[5] * winter_nestremoval[i] +
+             beta[6] * deterrence_activenestremoval[i] +
+             beta[7] * deterrence_night[i] +
+             beta[8] * dcco_usurpation[i] +
+             beta[9] * bcnh_road_proximity[i] +
+             beta[10] * raccoon_predation[i] +
+             beta[11] * pow(total_nest_density[i], 2) +  # Quadratic term
+             beta[12] * total_nest_density[i] * dcco_growth_index[i] +  # Interaction term
+             alpha_year[year[i]] +
+             phi * bcnh_growth_index_lag[i]  # AR(1) term using lagged variable
+    
+    # Generate replicated data
+    y_rep[i] ~ dt(mu[i], tau, nu)
+  }
+  
+  # Priors for fixed effects
+  for (j in 1:12) {
+    beta[j] ~ dnorm(0, 0.001)
+  }
+  
+  # Priors for variance parameters
+  sigma ~ dunif(0, 100)
+  sigma_year ~ dunif(0, 100)
+  
+  # Convert sigma to precision
+  tau <- pow(sigma, -2)
+  tau_year <- pow(sigma_year, -2)
+  
+  # Prior for degrees of freedom of t-distribution
+  nu ~ dgamma(2, 0.1)
+  
+  # Prior for AR(1) coefficient
+  phi ~ dunif(-1, 1)
+  
+  # Random year effect
+  for (t in 1:N_years) {
+    alpha_year[t] ~ dnorm(0, tau_year)
+  }
+}
+"
+
+```
+
+#Initial values function and parameters
+```{r inits}
+inits <- function() {
+  list(
+    beta = rnorm(12, 0, 0.1),
+    sigma = runif(1, 0, 1),
+    sigma_year = runif(1, 0, 1),
+    alpha_year = rnorm(N_years, 0, 0.1),
+    nu = 5,
+    phi = 0,
+    z = rbinom(10, 1, 0.5),
+    lambda = rexp(12, 1)
+  )
+}
+
+parameters <- c("beta", "sigma", "sigma_year", "nu", "phi", "alpha_year", "y_rep")
+```
+
+#Fit the model
+Starting with 50,000 iterations. Try 30,000 to 50,000.
+```{r}
+fit <- jags(
+  data = jags_data,
+  inits = inits,
+  parameters.to.save = parameters,
+  model.file = textConnection(model_string),
+  n.chains = 3,
+  n.iter = 50000,
+  n.burnin = 2000,
+  n.thin = 10
+)
+```
+
+##diagnostics start
+```{r}
+library(coda)
+library(parallel)
+```
+
+#convert to MCMC and posterior samples for bayesplot
+```{r}
+# Convert to MCMC for diagnostics
+fit_mcmc <- as.mcmc(fit)
+
+# Convert JAGS output to a format suitable for bayesplot
+posterior_samples <- as.array(fit$BUGSoutput$sims.array)
+
+fit
+```
+
+#function to calculate Rhat and sum of squared residuals
+```{r}
+# Function to calculate Rhat
+calculate_rhat <- function(mcmc_list) {
+  gelman.diag(mcmc_list)$psrf[,1]
+}
+
+# Function to calculate sum of squared residuals
+calc_ssr <- function(y, y_pred) {
+  sum((y - y_pred)^2)
+}
+```
+
+#calculate Rhat and print
+Used to assess convergence of Markov chains
+Ideal Rhat value: Generally, an Rhat value close to 1 indicates good convergence.
+Common interpretations:
+Rhat < 1.01 or 1.05: Excellent convergence
+1.05 < Rhat < 1.1: Acceptable, but may warrant further investigation
+Rhat > 1.1: Poor convergence, suggesting the chains have not mixed well
+```{r}
+# Calculate Rhat for all parameters
+rhat_values <- calculate_rhat(fit_mcmc)
+
+# Print Rhat values
+print("Rhat values:")
+print(rhat_values)
+
+# Plot Rhat values
+pdf("rhat_plot.pdf")
+par(mar = c(8, 4, 2, 2))
+barplot(rhat_values, las = 2, main = "Rhat Values", 
+        ylab = "Rhat", cex.names = 0.7)
+abline(h = 1.1, col = "red", lty = 2)
+dev.off()
+```
+
+# Calculate P-values
+```{r}
+# Extract y_rep_samples
+y_rep_samples <- fit$BUGSoutput$sims.list$y_rep
+
+# Check the dimensions of  data
+print(paste("Length of y_obs:", length(y_obs)))
+print(paste("Dimensions of y_rep_samples:", paste(dim(y_rep_samples), collapse = " x ")))
+
+# Function to calculate sum of squared residuals
+calc_ssr <- function(y, y_pred) {
+  sum((y - y_pred)^2)
+}
+
+# Calculate mean predictions
+y_rep_mean <- apply(y_rep_samples, 2, mean)
+
+# Calculate SSR for observed data
+ssr_obs <- calc_ssr(y_obs, y_rep_mean)
+
+# Calculate SSR for each replicated dataset
+ssr_rep <- apply(y_rep_samples, 1, function(y) calc_ssr(y, y_rep_mean))
+
+# Calculate Bayesian p-value
+bayes_p_value <- mean(ssr_rep > ssr_obs)
+print(paste("Bayesian P-value (using sum of squared residuals):", bayes_p_value))
+
+# Plot histogram of replicated SSR with observed SSR
+pdf("ssr_histogram.pdf")
+hist(ssr_rep, main="Histogram of Replicated SSR", xlab="SSR")
+abline(v=ssr_obs, col="red", lwd=2)
+legend("topright", legend=c("Observed SSR"), col="red", lwd=2)
+dev.off()
+
+# Scatter plot of observed vs. predicted values
+pdf("observed_vs_predicted.pdf")
+plot(y_obs, y_rep_mean, 
+     xlab = "Observed", ylab = "Predicted", 
+     main = "Observed vs. Predicted Values")
+abline(0, 1, col="red")
+dev.off()
+
+# Calculate and plot residuals
+residuals <- y_obs - y_rep_mean
+pdf("residual_plots.pdf")
+par(mfrow=c(2,2))
+plot(y_rep_mean, residuals, xlab="Fitted values", ylab="Residuals", main="Residuals vs Fitted")
+abline(h=0, col="red")
+qqnorm(residuals)
+qqline(residuals, col="red")
+hist(residuals, main="Histogram of Residuals")
+plot(y_obs, residuals, xlab="Observed values", ylab="Residuals", main="Residuals vs Observed")
+abline(h=0, col="red")
+dev.off()
+
+```
+
+#trace plots and density plots
+```{r}
+# Load required library
+library(bayesplot)
+
+# Convert JAGS output to a format suitable for bayesplot
+posterior_samples <- as.array(fit$BUGSoutput$sims.array)
+
+# Create trace plots
+pdf("trace_plots.pdf", width = 12, height = 8)
+mcmc_trace(posterior_samples, 
+           pars = c("beta[1]", "beta[2]", "beta[3]", "beta[4]", "beta[5]",
+                    "beta[6]", "beta[7]", "beta[8]", "beta[9]", "beta[10]",
+                    "beta[11]", "beta[12]", "sigma", "sigma_year", "nu", "phi"),
+           facet_args = list(ncol = 4, strip.position = "top"))
+dev.off()
+
+#alpha_year parameters
+pdf("trace_plots_with_alpha.pdf", width = 12, height = 12)
+mcmc_trace(posterior_samples, 
+           pars = c("beta[1]", "beta[2]", "beta[3]", "beta[4]", "beta[5]",
+                    "beta[6]", "beta[7]", "beta[8]", "beta[9]", "beta[10]",
+                    "beta[11]", "beta[12]", "sigma", "sigma_year", "nu", "phi",
+                    "alpha_year[1]", "alpha_year[2]", "alpha_year[3]", "alpha_year[4]", "alpha_year[5]"),
+           facet_args = list(ncol = 4, strip.position = "top"))
+dev.off()
+
+# To see all available parameters
+print(dimnames(posterior_samples)[[3]])
+
+# Create density plots
+pdf("density_plots.pdf", width = 12, height = 8)
+mcmc_dens(posterior_samples,
+          pars = c("beta[1]", "beta[2]", "beta[3]", "beta[4]", "beta[5]",
+                   "beta[6]", "beta[7]", "beta[8]", "beta[9]", "beta[10]",
+                   "beta[11]", "beta[12]","sigma", "sigma_year", "nu", "phi"),
+          facet_args = list(ncol = 4))
+dev.off()
+
+# Create a combined plot with both traces and densities
+pdf("combined_diagnostic_plots.pdf", width = 15, height = 12)
+mcmc_combo(posterior_samples,
+           pars = c("beta[1]", "beta[2]", "beta[3]", "beta[4]", "beta[5]",
+                    "beta[6]", "beta[7]", "beta[8]", "beta[9]", "beta[10]",
+                    "beta[11]", "beta[12]", "sigma", "sigma_year", "nu", "phi"),
+           combo = c("dens", "trace"),
+           facet_args = list(ncol = 4))
+dev.off()
+
+```
+
+#Plot residuals and save summary of posterior distributions
+```{r}
+# Plot residuals
+pdf("residual_plots.pdf")
+par(mfrow = c(2, 2))
+hist(residuals, main = "Histogram of Residuals", xlab = "Residuals")
+plot(y_obs, residuals, main = "Residuals vs Observed", 
+     xlab = "Observed Values", ylab = "Residuals")
+abline(h = 0, col = "red")
+qqnorm(residuals)
+qqline(residuals, col = "red")
+plot(fitted(fit), residuals, main = "Residuals vs Fitted", 
+     xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "red")
+dev.off()
+
+# Summary of posterior distributions
+summary(fit_mcmc)
+
+# Save the summary results as a CSV file
+posterior_samples <- as.matrix(fit_mcmc)
+results <- data.frame(
+  parameter = colnames(posterior_samples),
+  mean = colMeans(posterior_samples),
+  lower_ci = apply(posterior_samples, 2, quantile, probs = 0.025),
+  upper_ci = apply(posterior_samples, 2, quantile, probs = 0.975)
+)
+
+# Print and save results table
+print(results)
+write.csv(results, "jags_comprehensive_model_results_table.csv", row.names = FALSE)
+```
+
+
+#calculate,check, visualize residuals
+```{r}
+# Calculate residuals
+y_obs <- jags_data$bcnh_growth_index
+mu <- fit$BUGSoutput$sims.list$mu
+mu_mean <- apply(mu, 2, mean)
+residuals <- y_obs - mu_mean
+
+# Check residuals
+print(residuals)
+
+# Visualize residuals
+pdf("residual_plots.pdf")
+hist(residuals, main="Histogram of Residuals", xlab="Residuals")
+plot(y_obs, residuals, main="Residuals vs Observed", xlab="Observed Values", ylab="Residuals")
+abline(h=0, col="red")
+dev.off()
+```
+
+
+#5-fold cross validation
+```{r}
+# Perform 5-fold cross-validation
+k <- 5
+folds <- cut(seq(1, N), breaks = k, labels = FALSE)
+cv_results <- vector("list", k)
+
+for (i in 1:k) {
+  test_indices <- which(folds == i)
+  train_indices <- which(folds != i)
+  
+  # Prepare training data
+  train_data <- jags_data
+  train_data$N <- length(train_indices)
+  train_data$bcnh_growth_index <- jags_data$bcnh_growth_index[train_indices]
+  train_data$c <- jags_data$c[train_indices,]
+  train_data$year <- jags_data$year[train_indices]
+  
+  # Fit model on training data
+  cv_fit <- jags(data = train_data, inits = inits, parameters.to.save = parameters,
+                 model.file = textConnection(model_string),
+                 n.chains = 3, n.iter = 10000, n.burnin = 1000, n.thin = 10)
+  
+  # Predict on test data
+  test_data <- jags_data
+  test_data$N <- length(test_indices)
+  test_data$bcnh_growth_index <- jags_data$bcnh_growth_index[test_indices]
+  test_data$c <- jags_data$c[test_indices,]
+  test_data$year <- jags_data$year[test_indices]
+  
+  pred <- jags.predict(cv_fit, test_data)
+  
+  # Calculate RMSE
+  rmse <- sqrt(mean((jags_data$bcnh_growth_index[test_indices] - colMeans(pred))^2))
+  cv_results[[i]] <- rmse
+}
+
+mean_cv_rmse <- mean(unlist(cv_results))
+print(paste("Mean cross-validated RMSE:", mean_cv_rmse))
+```
