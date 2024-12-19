@@ -149,8 +149,8 @@ priors <- list(
 # Define the model ----
 
 model <- MCMCglmm(bcnh_growthindex ~ bcnh_nest_density + dcco_nest_density + 
-                    bcnh_nest_success + dcco_growthindex + bcnh_road_proximity + 
-                    dcco_usurpation + deterrence_activenestremoval,
+                    dcco_growthindex + bcnh_road_proximity + 
+                    deterrence_activenestremoval,
                   random = ~ year,
                   family = "gaussian",
                   data = prepared_data,
