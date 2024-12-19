@@ -3,6 +3,8 @@ library(tidyr)
 library(dplyr)
 library(kableExtra)
 
+#dec 19 PDF is not saving properly
+
 # Read the Excel file
 data <- read_excel("dcco_bcnh_database_ 1992_2023_july30th.xlsx", 
                    sheet = "Working Database 1992-2023")
@@ -78,3 +80,10 @@ save_kable(table_output, "bird_nest_counts_table.html")
 
 # save as PDF
 save_kable(table_output, "bird_nest_counts_table.pdf")
+
+
+library(webshot2)
+
+# Save as HTML first, then convert to PDF
+save_kable(table_output, "bird_nest_counts_table.html")
+webshot2::webshot("bird_nest_counts_table.html", "bird_nest_counts_table.pdf")
