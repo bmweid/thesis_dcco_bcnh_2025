@@ -8,7 +8,7 @@ library(MCMCvis)  # to visualise Bayesian model outputs
 library(stargazer)  # for tables of model outputs
 
 # Set WD and load data ----
-setwd("C:/Users/baill/OneDrive/r-projects/cormorant-colony-analysis/current working files/working files for GitHub/test_thesis_repo")
+#setwd("C:/Users/baill/OneDrive/r-projects/cormorant-colony-analysis/current working files/working files for GitHub/test_thesis_repo")
 
 data <- read.csv("combined_dataset.csv")
 str(data)
@@ -142,15 +142,15 @@ priors <- list(
               alpha.V = 1)),
   
   # Fixed effects priors (B)
-  B = list(mu = rep(0, 8),  # mean of 0 for all fixed effects
-           V = diag(8) * 25) # variance of 25 for all fixed effects
+  B = list(mu = rep(0, 6),  
+           V = diag(6) * 25) 
 )
 
 # Define the model ----
 
 model <- MCMCglmm(bcnh_growthindex ~ bcnh_nest_density + dcco_nest_density + 
-                    bcnh_nest_success + dcco_growthindex + bcnh_road_proximity + 
-                    dcco_usurpation + deterrence_activenestremoval,
+                    dcco_growthindex + bcnh_road_proximity + 
+                    deterrence_activenestremoval,
                   random = ~ year,
                   family = "gaussian",
                   data = prepared_data,
