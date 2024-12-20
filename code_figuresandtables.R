@@ -2,8 +2,9 @@ library(readxl)
 library(tidyr)
 library(dplyr)
 library(kableExtra)
+library(webshot2)
 
-#dec 19 PDF is not saving properly
+#dec 20 didn't get PDF working, but HTML works. Open in browswer and screenshot.
 
 # Read the Excel file
 data <- read_excel("dcco_bcnh_database_ 1992_2023_july30th.xlsx", 
@@ -68,22 +69,13 @@ table_output <- publication_table %>%
   row_spec(0, bold = TRUE) %>%
   add_header_above(c(" " = 1, "Number of Nests" = 2)) %>%
   footnote(
-    general = "Note: Counts represent total number of active nests observed during breeding season surveys.",
+    general = "Counts represent total number of active nests observed during breeding season surveys.",
     threeparttable = TRUE
   )
 
 # Display the table
 table_output
 
-# Save as HTML (can be copied into Word)
+# Save as HTML
 save_kable(table_output, "bird_nest_counts_table.html")
 
-# save as PDF
-save_kable(table_output, "bird_nest_counts_table.pdf")
-
-
-library(webshot2)
-
-# Save as HTML first, then convert to PDF
-save_kable(table_output, "bird_nest_counts_table.html")
-webshot2::webshot("bird_nest_counts_table.html", "bird_nest_counts_table.pdf")
