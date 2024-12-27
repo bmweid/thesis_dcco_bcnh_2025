@@ -205,3 +205,134 @@ print(pvalue)
 # Look at residuals
 residuals <- observed_values - fitted_values
 hist(residuals, main="Histogram of Residuals", xlab="Residuals")
+
+
+
+
+# Create Figure 3: Save posterior densities as HTML ----
+
+# Install and load required packages
+if (!require(webshot2)) install.packages("webshot2")
+library(webshot2)
+
+# Create descriptive effect names for the parameters
+effect_names <- c(
+  "Intercept",
+  "Effect of BCNH nest density on growth",
+  "Effect of DCCO nest density on growth",
+  "Effect of DCCO growth index on BCNH",
+  "Effect of road proximity on BCNH",
+  "Effect of active nest removal on BCNH"
+)
+
+# Create HTML content with more compact layout
+html_content <- '
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Posterior Densities</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <style>
+    body {
+      max-width: 800px;
+      margin: 0 auto;
+      font-family: "Times New Roman", Times, serif;
+    }
+    .grid-container {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      padding: 5px;
+    }
+    .plot {
+      width: 100%;
+      height: 250px;
+    }
+    .plot-title {
+      text-align: center;
+      font-size: 10px;
+      margin-bottom: 5px;
+    }
+    h1 {
+      text-align: center;
+      font-size: 12px;
+      margin: 10px 0;
+    }
+    .caption {
+      font-size: 10px;
+      margin: 10px;
+      text-align: justify;
+    }
+  </style>
+</head>
+<body>
+  <h1>Posterior Densities for Model Parameters</h1>
+  <div class="grid-container">'
+
+# Generate plots for each parameter
+for(i in 1:length(effect_names)) {
+  dens <- density(posterior_samples[,i], n = 512)
+  
+  plot_data <- list(
+    x = dens$x,
+    y = dens$y,
+    type = 'scatter',
+    mode = 'lines',
+    line = list(color = 'rgb(0, 0, 0)', width = 1)
+  )
+  
+  layout <- list(
+    showlegend = FALSE,
+    margin = list(t = 20, r = 20, b = 30, l = 40),
+    xaxis = list(
+      zeroline = TRUE,
+      zerolinewidth = 1,
+      zerolinecolor = 'rgb(0, 0, 0)',
+      showgrid = TRUE,
+      tickfont = list(size = 8)
+    ),
+    yaxis = list(
+      title = list(text = "Density", font = list(size = 8)),
+      showgrid = TRUE,
+      tickfont = list(size = 8)
+    )
+  )
+  
+  html_content <- paste0(
+    html_content,
+    sprintf('
+    <div>
+      <div class="plot-title">%s</div>
+      <div class="plot" id="plot%d"></div>
+    </div>
+    <script>
+      Plotly.newPlot("plot%d", [%s], %s, {displayModeBar: false});
+    </script>',
+            effect_names[i], i, i,
+            jsonlite::toJSON(plot_data),
+            jsonlite::toJSON(layout)
+    )
+  )
+}
+
+# Add caption and close HTML
+html_content <- paste0(html_content, '
+  </div>
+  <div class="caption">
+    <strong>Figure 3.</strong> Estimated posterior densities for effects of black-crowned night-heron (BCNH) nest density, double-crested cormorant (DCCO) nest density, DCCO growth index, road proximity, and active nest removal management on BCNH colony growth index in the Tommy Thompson Park, Toronto, Ontario. Vertical lines show the location of 0, the value indicating no effect. Note the variation in scale of the x-axis among plots. All numerical covariates were scaled to have a standard deviation of 1 prior to model fitting.
+  </div>
+</body>
+</html>')
+
+# Save HTML file
+writeLines(html_content, "Figure3_posterior_densities.html")
+
+# Save as PDF using basic webshot2 settings
+webshot2::webshot(
+  url = "Figure3_posterior_densities.html",
+  file = "Figure3_posterior_densities.pdf",
+  delay = 2,
+  zoom = 2,
+  vwidth = 800,
+  vheight = 1000
+)

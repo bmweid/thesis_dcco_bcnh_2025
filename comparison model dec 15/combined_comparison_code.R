@@ -3,6 +3,7 @@ library(tidyverse)
 library(MCMCglmm)
 library(MCMCvis)
 library(stargazer)
+library(dplyr)
 
 # Shared model settings
 MODEL_SETTINGS <- list(
@@ -14,21 +15,19 @@ MODEL_SETTINGS <- list(
 )
 
 # Function to prepare data
-prepare_data <- function(data_path) {
-  data <- read.csv(data_path)
-  prepared_data <- data |>
-    select(year, bcnh_nest_density, dcco_nest_density, bcnh_growthindex,
-           dcco_growthindex, bcnh_road_proximity, bcnh_nest_success, 
-           dcco_usurpation, deterrence_activenestremoval, raccoon_predation) |> # Added raccoon_predation
-    mutate(across(-year, scale)) |>
-    arrange(year)
-  
+prepare_data <- function(file_path) {
+data <- read.csv("combined_dataset.csv")
+
+# Initial data preparation
+prepared_data <- data |>
+  select(year, bcnh_nest_density, dcco_nest_density, bcnh_growthindex,
+         dcco_growthindex, bcnh_road_proximity, bcnh_nest_success, 
+         dcco_usurpation, deterrence_activenestremoval, raccoon_predation) |>
+  mutate(total_nest_density = bcnh_nest_density + dcco_nest_density) |>
+  mutate(across(-year, scale)) |>
+  arrange(year)
+
   head(prepared_data)
-  
-  # Scale variables  ----
-  prepared_data <- prepared_data |>
-    mutate(across(-year, scale)) |>
-    arrange(year)
   
   # Create lagged bcnh_growthindex
   prepared_data <- prepared_data |>
@@ -57,11 +56,15 @@ prepare_data <- function(data_path) {
     raccoon_predation = list(
       mean = mean(prepared_data$raccoon_predation, na.rm = TRUE),
       sd = sd(prepared_data$raccoon_predation, na.rm = TRUE)
+    ),  
+      total_nest_density = list(
+        mean = mean(prepared_data$total_nest_density, na.rm = TRUE),
+        sd = sd(prepared_data$total_nest_density, na.rm = TRUE)
     )
   )
   
   # Function to impute missing values
-  impute_missing_values <- function(data) {
+  impute_missing_values <- function(data, obs_stats) {
     # Make a copy of the data
     imputed_data <- data
     # Set random seed for reproducibility
@@ -69,13 +72,13 @@ prepare_data <- function(data_path) {
     
     # Handle normally distributed variables
     for (var in c("bcnh_nest_density", "dcco_nest_density", "bcnh_growthindex", 
-                  "dcco_growthindex", "raccoon_predation")) {  # Added raccoon_predation
+                  "dcco_growthindex", "raccoon_predation", "total_nest_density")) {
       missing_indices <- which(is.na(imputed_data[[var]]))
       if (length(missing_indices) > 0) {
         imputed_data[[var]][missing_indices] <- rnorm(
           n = length(missing_indices),
-          mean = observed_stats[[var]]$mean,
-          sd = observed_stats[[var]]$sd
+          mean = obs_stats[[var]]$mean,
+          sd = obs_stats[[var]]$sd
         )
       }
     }
@@ -120,8 +123,8 @@ prepare_data <- function(data_path) {
     return(imputed_data)
   }
   
-  # Apply the imputation
-  prepared_data <- impute_missing_values(prepared_data)
+  # Apply the imputation and return the result
+  prepared_data <- impute_missing_values(prepared_data, observed_stats)
   return(prepared_data)
 }
 
@@ -216,6 +219,29 @@ run_model3 <- function(prepared_data) {
   return(model3)
 }
 
+run_model4 <- function(prepared_data) {
+  # Modified formula removing the redundant total_nest_density term
+  model4_formula <- bcnh_growthindex ~ bcnh_nest_density + dcco_nest_density + 
+    dcco_growthindex + bcnh_road_proximity + dcco_usurpation + 
+    raccoon_predation + deterrence_activenestremoval
+  
+  # Count number of fixed effects (including intercept)
+  n_fixed <- length(attr(terms(model4_formula), "term.labels")) + 1
+  
+  model4 <- MCMCglmm(model4_formula,
+                     random = ~ year,
+                     family = "gaussian",
+                     data = prepared_data,
+                     prior = get_standard_priors(n_fixed),
+                     nitt = 50000,
+                     thin = 10,
+                     burnin = 2000,
+                     pr = TRUE,
+                     verbose = TRUE)
+  
+  return(model4)
+}
+
 # main.R - Main script to run everything ----
 
 compare_models <- function(models_list) {
@@ -265,12 +291,14 @@ main <- function() {
   model1 <- run_model1(data)
   model2 <- run_model2(data)
   model3 <- run_model3(data)
+  model4 <- run_model4(data)
   
   # Store models in list
   models <- list(
     model1 = model1,
     model2 = model2,
-    model3 = model3
+    model3 = model3,
+    model4 = model4
   )
   
   # Run diagnostics for each model
@@ -295,3 +323,67 @@ main <- function() {
 
 # Run the analysis
 results <- main()
+
+# create table ----
+
+library(tidyr)
+library(dplyr)
+library(kableExtra)
+library(webshot2)
+
+# Create dataframe with model 3 results
+model3_results <- data.frame(
+  Parameter = c("Intercept", 
+                "BCNH nest density", 
+                "DCCO nest density",
+                "DCCO growth index",
+                "BCNH road proximity",
+                "Active nest removal"),
+  Mean = c(-0.021023, 
+           0.01221272,
+           0.0226327,
+           0.4460474,
+           -0.00004395844,
+           -0.01911731),
+  Lower = c(-0.361587332,
+            -0.348261208,
+            -0.341978236,
+            0.081900973,
+            -0.395979504,
+            -0.433151394),
+  Upper = c(0.3392793,
+            0.3953971,
+            0.4184719,
+            0.8127304,
+            0.4363143,
+            0.3998757)
+)
+
+# Format numbers to 3 decimal places
+model3_results <- model3_results %>%
+  mutate(across(c(Mean, Lower, Upper), ~format(round(., 3), nsmall = 3)))
+
+# Create the formatted table
+table_output <- model3_results %>%
+  kbl(
+    caption = "Table 2: Estimated parameters of Black-crowned Night-Heron colony growth model examining the relationship with Double-crested Cormorant abundance.",
+    col.names = c("Parameter", 
+                  "Posterior Mean", 
+                  "2.5% Quantile",
+                  "97.5% Quantile"),
+    align = c("l", "r", "r", "r"),
+    booktabs = TRUE
+  ) %>%
+  kable_classic(full_width = FALSE) %>%
+  row_spec(0, bold = TRUE) %>%
+  add_header_above(c(" " = 1, "Parameter Estimates" = 3)) %>%
+  footnote(
+    general = "Values represent posterior means and 95% credible intervals from the best-fitting MCMC model (DIC = -12.61). Significant effects are indicated by credible intervals that do not overlap zero.",
+    threeparttable = TRUE
+  )
+
+# Display the table
+table_output
+
+# Save as HTML
+save_kable(table_output, "model3_posterior_estimates.html")
