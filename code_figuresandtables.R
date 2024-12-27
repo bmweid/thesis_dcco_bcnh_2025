@@ -3,6 +3,8 @@ library(tidyr)
 library(dplyr)
 library(kableExtra)
 library(webshot2)
+library(ggplot2)  # Add this library for plotting
+library(scales)   # Add this for better axis formatting
 
 #dec 20 didn't get PDF working, but HTML works. Open in browswer and screenshot.
 
@@ -61,7 +63,7 @@ publication_table <- summary_wide %>%
 # Create the formatted table
 table_output <- publication_table %>%
   kbl(
-    caption = "Annual nest counts of Double-crested Cormorant and Black-crowned Night-Heron at Tommy Thompson Park, Toronto, Ontario (1992-2023).",
+    caption = "Table 1: Annual nest counts of Double-crested Cormorant and Black-crowned Night-Heron at Tommy Thompson Park, Toronto, Ontario (1992-2023).",
     align = c("c", "r", "r"),
     booktabs = TRUE
   ) %>%
@@ -79,6 +81,7 @@ table_output
 # Save as HTML
 save_kable(table_output, "bird_nest_counts_table.html")
 
+<<<<<<< HEAD
 # table 3 ----
 # Load required libraries
 library(tidyr)
@@ -153,3 +156,48 @@ table_output
 
 # Save as HTML
 save_kable(table_output, "species_distribution_table.html")
+=======
+
+# Create the population trend plot ----
+
+library(stringr)
+
+# Create the caption with manual width
+caption_text <- str_wrap("Figure 4: Population trends of Double-crested Cormorant and Black-crowned Night-Heron nests at Tommy Thompson Park, Toronto, Ontario (1992-2023). Each point represents the total number of active nests observed during breeding season surveys.", width = 100)
+
+# Use in the plot
+population_plot <- ggplot(summary_table, aes(x = Year, y = Count, color = Species)) +
+  geom_line(size = 1) +
+  geom_point(size = 3) +
+  scale_y_continuous(labels = comma) +
+  scale_color_manual(values = c("Double-crested Cormorant" = "#1b9e77", 
+                                "Black-crowned Night Heron" = "#d95f02")) +
+  labs(x = "Year",
+       y = "Number of Nests",
+       color = "Species",
+       caption = caption_text) +
+  theme_classic() +
+  theme(
+    legend.position = "bottom",
+    axis.title = element_text(size = 12, face = "bold"),
+    axis.text = element_text(size = 10),
+    legend.text = element_text(size = 10),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    panel.grid.major = element_line(color = "grey90"),
+    panel.grid.minor = element_blank(),
+    plot.caption = element_text(
+      hjust = 0, 
+      size = 10,
+      lineheight = 1.2
+    ),
+    plot.margin = margin(t = 10, r = 30, b = 30, l = 10, unit = "pt")
+  )
+
+# Save as PDF with adjusted dimensions
+ggsave("Figure4_bird_populations.pdf", population_plot, 
+       width = 8, height = 7, units = "in", device = "pdf")
+
+# Save as PNG with high resolution
+ggsave("Figure4_bird_populations.png", population_plot, 
+       width = 8, height = 7, units = "in", dpi = 300)
+>>>>>>> 0c6030d1e98189b17f075bd44e650ead80bac1b6
