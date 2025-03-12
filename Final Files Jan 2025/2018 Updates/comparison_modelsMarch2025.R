@@ -5,6 +5,8 @@ library(MCMCvis)
 library(stargazer)
 library(dplyr)
 
+setwd("C:/Users/baill/OneDrive/Desktop/thesis_dcco_bcnh_2025/Final Files Jan 2025/2018 Updates")
+
 # Shared model settings
 MODEL_SETTINGS <- list(
   nitt = 50000,
@@ -357,47 +359,6 @@ results <- main()
 # save the results as csv
 write.csv(results$comparison$comparison_table, "model_comparison_resultsMarch112025.csv")
 
-### create posterior densities table ----
-
-# Create posterior density plots using MCMCvis
-# Convert MCMCglmm output to mcmc.list
-mcmc_chains <- as.mcmc.list(results$models$model3$Sol)
-
-# Create posterior density plots
-png("model3_posterior_densities.png", width = 10, height = 12, units = "in", res = 300)
-
-MCMCplot(mcmc_chains,
-         params = "all",
-         excl = NULL,
-         ref = 0,
-         main = "Model 3 Posterior Parameter Distributions",
-         xlab = "Parameter Estimate",
-         ref_ovl = TRUE,
-         ci = c(50, 95),
-         col = c("blue", "black"),
-         sz_thick = 2,
-         sz_thin = 1,
-         sz_ax = 1,
-         sz_lab = 1.2,
-         sz_main = 1.4)
-
-dev.off()
-
-# Also create individual density plots
-png("model3_individual_densities.png", width = 12, height = 8, units = "in", res = 300)
-
-MCMCdens(mcmc_chains,
-         params = "all",
-         excl = NULL,
-         main = "Model 3 Parameter Posterior Densities",
-         col = "blue",
-         lwd = 2,
-         type = "density",
-         xlab = "Parameter Estimate",
-         ylab = "Density",
-         horiz = FALSE)
-
-dev.off()
 
 # Save summary statistics
 summary_stats <- MCMCsummary(mcmc_chains,
